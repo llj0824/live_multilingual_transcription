@@ -2,7 +2,7 @@ from faster_whisper import WhisperModel
 from datetime import datetime
 
 model_size = "large"
-audio_file = "leoChineseSample.mp3"
+audio_file = "output.mp3"
 
 # Run on CPU with FP32
 # model = WhisperModel(model_size, device="cpu", compute_type="float32")
