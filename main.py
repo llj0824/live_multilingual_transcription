@@ -35,7 +35,7 @@ class AudioProcessor:
       self.chunk_duration = chunk_duration
       self.sample_rate = sample_rate
       self.chunk_size = self.chunk_duration * self.sample_rate
-      self.current_chunk = np.array([], dtype=np.int16)
+      self.current_chunk = np.array([], dtype=np.float32)
       self.audio_queue = queue.Queue()
       # Run on CPU with INT8
       self.model = WhisperModel(model_size, device="cpu", compute_type="int8")
@@ -43,18 +43,23 @@ class AudioProcessor:
 
       # Set aggressiveness mode, which is an integer between 0 and 3. 
       # 0 is the least aggressive about filtering out non-speech, 3 is the most aggressive.
-      self.vad.set_mode(2)
+      self.vad.set_mode(1)
       # Calculate frame size needed for VAD based on frame duration and sample rate
       self.frame_duration = 0.01  # 10 ms
       self.frame_size = int(self.sample_rate * self.frame_duration)
 
   def callback(self, indata, frames, time, status):
     # Convert the audio data to mono and the appropriate sample width
-    audio_data = np.frombuffer(indata, dtype=np.int16)
+    audio_data = np.frombuffer(indata, dtype=np.float32)
+
+    # If the audio is stereo, convert it to mono
+    if audio_data.ndim > 1 and audio_data.shape[1] == 2:
+      if sampling(percentage=1):
+        print("converting from stero to mono")
+      audio_data = np.mean(audio_data, axis=1)  
 
     # Divide the audio data into frames
     frames = np.array_split(audio_data, len(audio_data) // self.frame_size)
-
     for frame in frames:
       # Use the VAD to check if this chunk contains speech
       # 1. **Sample Rate**: The WebRTC VAD only supports 8, 16, 32 and 48 kHz sample rates. Make sure your audio data is at one of these sample rates.
@@ -75,7 +80,7 @@ class AudioProcessor:
             # Put the current chunk in the queue
             self.audio_queue.put(self.current_chunk)
             # And start a new chunk
-            self.current_chunk = np.array([], dtype=np.int16)
+            self.current_chunk = np.array([], dtype=np.float32)
       else:
         # Only print the statements 1% of the time
         if sampling(percentage=1):
@@ -100,7 +105,7 @@ class AudioProcessor:
           now = datetime.now()
 
           # Format the date and time
-          timestamp = now.strftime("%Y%m%d_%H")
+          timestamp = now.strftime("%Y%m%d_%H%M")
 
           # Create the output file name
           output_transcript_file = f"transcript_{timestamp}.txt"
