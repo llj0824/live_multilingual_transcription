@@ -19,79 +19,71 @@ from faster_whisper import WhisperModel
 from datetime import datetime
 
 model_size = "small"  # Specify the size of the Whisper model
-sample_rate = 48000  # Sample rate of Macbook built-in microphone
+init_sample_rate = 48000  # Sample rate of Macbook built-in microphone
+init_chunk_duration = 10  # Duration of audio to be buffered in seconds
 
-chunk_duration = 10  # Duration of audio to be buffered in seconds
-chunk_size = chunk_duration * sample_rate
-current_chunk = np.array([], dtype=np.int16)
+class AudioProcessor:
+  def __init__(self, chunk_duration, sample_rate):
+      self.chunk_duration = chunk_duration
+      self.sample_rate = sample_rate
+      self.chunk_size = self.chunk_duration * self.sample_rate
+      self.current_chunk = np.array([], dtype=np.int16)
+      self.audio_queue = queue.Queue()
+      # Run on CPU with INT8
+      self.model = WhisperModel(model_size, device="cpu", compute_type="int16")
 
-# Run on CPU with INT8
-print("Initiating Whisper Model...")
-model = WhisperModel(model_size, device="cpu", compute_type="int8")
+  def callback(self, indata, frames, time, status):
+      # Append the incoming audio data to the current chunk
+      self.current_chunk = np.append(self.current_chunk, indata)
 
-# Create a queue to hold the incoming audio data
-audio_queue = queue.Queue()
+      # If the current chunk has reached the desired size
+      if len(self.current_chunk) >= self.chunk_size:
+          # Put the current chunk in the queue
+          self.audio_queue.put(self.current_chunk)
+          # And start a new chunk
+          self.current_chunk = np.array([], dtype=np.int16)
 
-# This function will be run in a separate thread to process the audio
-def process_audio():
-    while True:
-        # Wait until there's enough audio data in the queue
-        while audio_queue.qsize() < buffer_duration * sample_rate:
-            print("Waiting for more. Queue size: " + str(audio_queue.qsize()))
-            pass
+  def process_audio(self):
+      while True:
+          # Wait until there's a chunk in the queue
+          while self.audio_queue.empty():
+              print("Waiting for more. Queue size: " + str(self.audio_queue.qsize()))
+              pass
 
-        # # Get the audio data from the queue
-        # audio_data = np.array([], dtype=np.int16)
-        # while audio_queue.qsize() > 0:
-        #     audio_data = np.append(audio_data, audio_queue.get())
+          # Get the chunk from the queue
+          audio_data = self.audio_queue.get()
 
-        audio_data = np.empty((buffer_duration * sample_rate,), dtype=np.int16)
-        for i in range(buffer_duration * sample_rate):
-            audio_data[i] = audio_queue.get()
+          # Process the audio
+          print("Processing transcription...")
+          segments, info = model.transcribe(audio_data, language="zh", task="translate", beam_size=5)
 
-        # Process the audio
-        print("Processing transcription...")
-        segments, info = model.transcribe(audio_data, language="zh", task="translate", beam_size=5)
+          # Rest of the code...
+          print("Detected language '%s' with probability %f" % (info.language, info.language_probability))
 
-        print("Detected language '%s' with probability %f" % (info.language, info.language_probability))
+          # Get the current date and time
+          now = datetime.now()
 
-        # Get the current date and time
-        now = datetime.now()
+          # Format the date and time
+          timestamp = now.strftime("%Y%m%d_%H")
 
-        # Format the date and time
-        timestamp = now.strftime("%Y%m%d_%H")
+          # Create the output file name
+          output_file = f"audio_{timestamp}.txt"
 
-        # Create the output file name
-        output_file = f"audio_{timestamp}.txt"
+          # Open the output file
+          with open(output_file, "w") as f:
+              for segment in segments:
+                  # Write the transcription to the file
+                  f.write("[%.2fs -> %.2fs] %s\n" % (segment.start, segment.end, segment.text))
 
-        # Open the output file
-        with open(output_file, "w") as f:
-            for segment in segments:
-                # Write the transcription to the file
-                f.write("[%.2fs -> %.2fs] %s\n" % (segment.start, segment.end, segment.text))
+                  # Also print the transcription
+                  print("[%.2fs -> %.2fs] %s" % (segment.start, segment.end, segment.text))
 
-                # Also print the transcription
-                print("[%.2fs -> %.2fs] %s" % (segment.start, segment.end, segment.text))
-
-# This function will be called for each chunk of audio data
-def callback(indata, frames, time, status):
-    global current_chunk
-    # Append the incoming audio data to the current chunk
-    current_chunk = np.append(current_chunk, indata)
-    
-    # If the current chunk has reached the desired size
-    if len(current_chunk) >= chunk_size:
-        # Put the current chunk in the queue
-        audio_queue.put(current_chunk)
-        # And start a new chunk
-        current_chunk = np.array([], dtype=np.int16)
-
-# Start the processing thread
-processing_thread = threading.Thread(target=process_audio)
+# Usage:
+processor = AudioProcessor(chunk_duration=init_chunk_duration, sample_rate=init_sample_rate)
+processing_thread = threading.Thread(target=processor.process_audio)
 processing_thread.start()
 
-# Start recording audio
-with sd.InputStream(samplerate=sample_rate, callback=callback):
+with sd.InputStream(callback=processor.callback):
     print("Recording started. Press Ctrl+C to stop the recording.")
     while True:
         pass
