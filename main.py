@@ -23,6 +23,9 @@ model_size = "small"  # Specify the size of the Whisper model
 init_sample_rate = 48000  # Sample rate of Macbook built-in microphone
 init_chunk_duration = 10  # Duration of audio to be buffered in seconds
 
+def sampling(percentage):
+    return random.randint(0, 100) < percentage
+
 class AudioProcessor:
   def __init__(self, chunk_duration, sample_rate):
       self.chunk_duration = chunk_duration
@@ -36,7 +39,7 @@ class AudioProcessor:
   def callback(self, indata, frames, time, status):
       # Append the incoming audio data to the current chunk
       self.current_chunk = np.append(self.current_chunk, indata)
-      
+
       # Only print the statements 5% of the time
       if sampling(percentage=5):
           print("Waiting for audio chunk to hit: " + str(self.chunk_size))
@@ -82,9 +85,6 @@ class AudioProcessor:
 
                   # Also print the transcription
                   print("[%.2fs -> %.2fs] %s" % (segment.start, segment.end, segment.text))
-
-  def sampling(percentage):
-      return random.randint(0, 100) < percentage
 
 # Usage:
 processor = AudioProcessor(chunk_duration=init_chunk_duration, sample_rate=init_sample_rate)
