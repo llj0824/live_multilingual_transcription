@@ -20,6 +20,7 @@ from faster_whisper import WhisperModel
 from datetime import datetime
 from pydub import AudioSegment
 import os
+import noisereduce as nr
 
 model_size = "small"  # Specify the size of the Whisper model
 init_sample_rate = 48000  # Sample rate of Macbook built-in microphone
@@ -40,6 +41,9 @@ class AudioProcessor:
       self.model = WhisperModel(model_size, device="cpu", compute_type="int8")
 
   def callback(self, indata, frames, time, status):
+      # Reduce noise
+      indata = nr.reduce_noise(audio_clip=indata, noise_clip=indata)
+
       # Append the incoming audio data to the current chunk
       self.current_chunk = np.append(self.current_chunk, indata)
 
