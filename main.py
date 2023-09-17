@@ -136,7 +136,7 @@ processor = AudioProcessor(chunk_duration=init_chunk_duration, sample_rate=init_
 processing_thread = threading.Thread(target=processor.process_audio)
 processing_thread.start()
 
-with sd.InputStream(samplerate=init_sample_rate, callback=processor.callback, blocksize=processor.frame_size):
+with sd.InputStream(samplerate=init_sample_rate, callback=processor.callback, blocksize=processor.frame_size,channels=1):
     print("Recording started. Press Ctrl+C to stop the recording.")
     while True:
         pass
