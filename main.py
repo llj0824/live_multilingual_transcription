@@ -1,3 +1,16 @@
+"""
+This script uses the Whisper ASR (Automatic Speech Recognition) model to transcribe audio in real-time. 
+It records audio from the default input device, processes it in a separate thread, and writes the transcriptions to a text file.
+
+The script uses a queue to buffer the incoming audio data. The recording thread puts incoming audio data into the queue, 
+and the processing thread takes data from the queue and processes it.
+
+The Whisper ASR model is initialized with a specific model size and is set to run on the CPU with INT8 precision.
+
+The script also prints out the detected language and its probability.
+
+The transcriptions are written to a text file with a timestamp in its name.
+"""
 import threading
 import queue
 import sounddevice as sd
@@ -5,11 +18,12 @@ import numpy as np
 from faster_whisper import WhisperModel
 from datetime import datetime
 
-model_size = "large"
-# duration of audio to be buffered in seconds
-# two buffers - one for recording dialogue, another for processing.
-buffer_duration = 10  
-sample_rate = 100  # sample rate in Hz
+model_size = "small"  # Specify the size of the Whisper model
+sample_rate = 48000  # Sample rate of Macbook built-in microphone
+
+chunk_duration = 10  # Duration of audio to be buffered in seconds
+chunk_size = chunk_duration * sample_rate
+current_chunk = np.array([], dtype=np.int16)
 
 # Run on CPU with INT8
 print("Initiating Whisper Model...")
@@ -26,10 +40,14 @@ def process_audio():
             print("Waiting for more. Queue size: " + str(audio_queue.qsize()))
             pass
 
-        # Get the audio data from the queue
-        audio_data = np.array([], dtype=np.int16)
-        while audio_queue.qsize() > 0:
-            audio_data = np.append(audio_data, audio_queue.get())
+        # # Get the audio data from the queue
+        # audio_data = np.array([], dtype=np.int16)
+        # while audio_queue.qsize() > 0:
+        #     audio_data = np.append(audio_data, audio_queue.get())
+
+        audio_data = np.empty((buffer_duration * sample_rate,), dtype=np.int16)
+        for i in range(buffer_duration * sample_rate):
+            audio_data[i] = audio_queue.get()
 
         # Process the audio
         print("Processing transcription...")
@@ -57,16 +75,23 @@ def process_audio():
 
 # This function will be called for each chunk of audio data
 def callback(indata, frames, time, status):
-    # Put the incoming audio data in the queue
-    # Flatten the incoming audio data
-    audio_queue.put(indata.flatten())
+    global current_chunk
+    # Append the incoming audio data to the current chunk
+    current_chunk = np.append(current_chunk, indata)
+    
+    # If the current chunk has reached the desired size
+    if len(current_chunk) >= chunk_size:
+        # Put the current chunk in the queue
+        audio_queue.put(current_chunk)
+        # And start a new chunk
+        current_chunk = np.array([], dtype=np.int16)
 
 # Start the processing thread
 processing_thread = threading.Thread(target=process_audio)
 processing_thread.start()
 
 # Start recording audio
-with sd.InputStream(callback=callback):
+with sd.InputStream(samplerate=sample_rate, callback=callback):
     print("Recording started. Press Ctrl+C to stop the recording.")
     while True:
         pass
