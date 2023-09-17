@@ -1,0 +1,33 @@
+Development Log 
+
+== 6. debugging real time transcription
+a. Freezing after first batch on queue processing
+b. Audio recording too much static
+	-> option 1: strip bare sounddevice.inputstream
+	-> option 2: use a higher level audio recording library
+
+==  5. transitioning to real time transcription.
+
+note: the back and forth iterating & giving it suggestions.
+screenshots - 5a -> 5c
+
+==  4. explaining library/model parameters
+
+screenshots - 4
+
+==  3. sanity check translation of chinese audio to english 
+
+docs: https://github.com/guillaumekln/faster-whisper
+
+==  2. computer & external library compatitibility -> CUDA GPU/CPU ==
+
+screenshot - 2
+
+==	1. setting up developer environment ==
+
+screenshots - 1a & 1b
+
+== 0. System design discussion == 
+
+screenshots - 0
+
