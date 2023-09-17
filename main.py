@@ -20,7 +20,7 @@ from faster_whisper import WhisperModel
 from datetime import datetime
 from pydub import AudioSegment
 import os
-import noisereduce as nr
+import webrtcvad
 
 model_size = "small"  # Specify the size of the Whisper model
 init_sample_rate = 48000  # Sample rate of Macbook built-in microphone
@@ -39,25 +39,48 @@ class AudioProcessor:
       self.audio_queue = queue.Queue()
       # Run on CPU with INT8
       self.model = WhisperModel(model_size, device="cpu", compute_type="int8")
+      self.vad = webrtcvad.Vad()
+
+      # Set aggressiveness mode, which is an integer between 0 and 3. 
+      # 0 is the least aggressive about filtering out non-speech, 3 is the most aggressive.
+      self.vad.set_mode(2)
+      # Calculate frame size needed for VAD based on frame duration and sample rate
+      self.frame_duration = 0.01  # 10 ms
+      self.frame_size = int(self.sample_rate * self.frame_duration)
 
   def callback(self, indata, frames, time, status):
-      # Reduce noise
-      indata = nr.reduce_noise(audio_clip=indata, noise_clip=indata)
+    # Convert the audio data to mono and the appropriate sample width
+    audio_data = np.frombuffer(indata, dtype=np.int16)
 
-      # Append the incoming audio data to the current chunk
-      self.current_chunk = np.append(self.current_chunk, indata)
+    # Divide the audio data into frames
+    frames = np.array_split(audio_data, len(audio_data) // self.frame_size)
 
-      # Only print the statements 5% of the time
-      if sampling(percentage=1):
-          print("Waiting for audio chunk to hit: " + str(self.chunk_size))
-          print("Currently audio chunk size: " + str(len(self.current_chunk)))
+    for frame in frames:
+      # Use the VAD to check if this chunk contains speech
+      # 1. **Sample Rate**: The WebRTC VAD only supports 8, 16, 32 and 48 kHz sample rates. Make sure your audio data is at one of these sample rates.
+      # 2. **Frame Duration**: The WebRTC VAD requires frames to be either 10, 20, or 30 ms in duration. 
+      # This is related to the sample rate. For example, at a sample rate of 16 kHz,
+      # a 10 ms frame is 160 samples, a 20 ms frame is 320 samples, and a 30 ms frame is 480 samples.
+      if len(frame) == self.frame_size and self.vad.is_speech(frame.tobytes(), self.sample_rate):
+        # Append the incoming audio data to the current chunk
+        self.current_chunk = np.append(self.current_chunk, indata)
 
-      # If the current chunk has reached the desired size
-      if len(self.current_chunk) >= self.chunk_size:
-          # Put the current chunk in the queue
-          self.audio_queue.put(self.current_chunk)
-          # And start a new chunk
-          self.current_chunk = np.array([], dtype=np.int16)
+        # Only print the statements 5% of the time
+        if sampling(percentage=1):
+            print("Waiting for audio chunk to hit: " + str(self.chunk_size))
+            print("Currently audio chunk size: " + str(len(self.current_chunk)))
+
+        # If the current chunk has reached the desired size
+        if len(self.current_chunk) >= self.chunk_size:
+            # Put the current chunk in the queue
+            self.audio_queue.put(self.current_chunk)
+            # And start a new chunk
+            self.current_chunk = np.array([], dtype=np.int16)
+      else:
+        # Only print the statements 1% of the time
+        if sampling(percentage=1):
+            print(f"Frame length: {len(frame)}, Frame size: {self.frame_size}, Equal: {len(frame) == self.frame_size}")
+            # print(f"self.vad.is_speech(frame.tobytes(), self.sample_rate) => {self.vad.is_speech(frame.tobytes(), self.sample_rate)}")
 
   def process_audio(self):
       while True:
@@ -108,7 +131,7 @@ processor = AudioProcessor(chunk_duration=init_chunk_duration, sample_rate=init_
 processing_thread = threading.Thread(target=processor.process_audio)
 processing_thread.start()
 
-with sd.InputStream(samplerate=init_sample_rate, callback=processor.callback):
+with sd.InputStream(samplerate=init_sample_rate, callback=processor.callback, blocksize=processor.frame_size):
     print("Recording started. Press Ctrl+C to stop the recording.")
     while True:
         pass
