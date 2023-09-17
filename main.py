@@ -13,6 +13,7 @@ The transcriptions are written to a text file with a timestamp in its name.
 """
 import threading
 import queue
+import random
 import sounddevice as sd
 import numpy as np
 from faster_whisper import WhisperModel
@@ -30,11 +31,16 @@ class AudioProcessor:
       self.current_chunk = np.array([], dtype=np.int16)
       self.audio_queue = queue.Queue()
       # Run on CPU with INT8
-      self.model = WhisperModel(model_size, device="cpu", compute_type="int16")
+      self.model = WhisperModel(model_size, device="cpu", compute_type="int8")
 
   def callback(self, indata, frames, time, status):
       # Append the incoming audio data to the current chunk
       self.current_chunk = np.append(self.current_chunk, indata)
+      
+      # Only print the statements 5% of the time
+      if sampling(percentage=5):
+          print("Waiting for audio chunk to hit: " + str(self.chunk_size))
+          print("Currently audio chunk size: " + str(len(self.current_chunk)))
 
       # If the current chunk has reached the desired size
       if len(self.current_chunk) >= self.chunk_size:
@@ -47,7 +53,6 @@ class AudioProcessor:
       while True:
           # Wait until there's a chunk in the queue
           while self.audio_queue.empty():
-              print("Waiting for more. Queue size: " + str(self.audio_queue.qsize()))
               pass
 
           # Get the chunk from the queue
@@ -55,7 +60,7 @@ class AudioProcessor:
 
           # Process the audio
           print("Processing transcription...")
-          segments, info = model.transcribe(audio_data, language="zh", task="translate", beam_size=5)
+          segments, info = self.model.transcribe(audio_data, language="zh", task="translate", beam_size=5)
 
           # Rest of the code...
           print("Detected language '%s' with probability %f" % (info.language, info.language_probability))
@@ -77,6 +82,9 @@ class AudioProcessor:
 
                   # Also print the transcription
                   print("[%.2fs -> %.2fs] %s" % (segment.start, segment.end, segment.text))
+
+  def sampling(percentage):
+      return random.randint(0, 100) < percentage
 
 # Usage:
 processor = AudioProcessor(chunk_duration=init_chunk_duration, sample_rate=init_sample_rate)
