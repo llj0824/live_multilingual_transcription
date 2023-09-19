@@ -32,9 +32,9 @@ class AudioProcessor:
                                 samplerate=self.sample_rate, channels=1, device=self.device)
             sd.wait()  # Wait until recording is finished
             # Play the audio data before enqueuing
-            print("Playing pre-enqueuing recording")
-            sd.play(audio_data, self.sample_rate)
-            sd.wait()  # Wait until audio playback is finished
+            # print("Playing pre-enqueuing recording")
+            # sd.play(audio_data, self.sample_rate)
+            # sd.wait()  # Wait until audio playback is finished
             self.audio_queue.put(audio_data)
 
     def process_audio(self):
@@ -45,9 +45,9 @@ class AudioProcessor:
             audio_data = self.audio_queue.get()
 
             # Play the audio data
-            # print("Playing dequeued recording")
-            # sd.play(audio_data, self.sample_rate)
-            # sd.wait()  # Wait until audio playback is finished
+            print("Playing dequeued recording")
+            sd.play(audio_data, self.sample_rate)
+            sd.wait()  # Wait until audio playback is finished
 
             now = datetime.now()
             timestamp = now.strftime("%Y%m%d_%H%M")
@@ -77,6 +77,13 @@ processing_thread = threading.Thread(target=processor.process_audio)
 recording_thread.start()
 processing_thread.start()
 
-print("Recording started. Press Ctrl+C to stop the recording.")
-while True:
-    pass
+try:
+    print("Recording started. Press Ctrl+C to stop the recording.")
+    while True:
+        pass
+except KeyboardInterrupt:
+    # Handles user Ctrl+C command.
+    print("Recording stopped.")
+    # Stop the threads
+    recording_thread.join()
+    processing_thread.join()
