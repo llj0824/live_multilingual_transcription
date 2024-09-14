@@ -15,10 +15,16 @@ def prompt_user_for_input_device():
 
     device_index = input(
         "Select input device by index (leave empty for default): ")
-    return None if device_index == "" else int(device_index)
-
+    if device_index == "":
+        print("Selected default input source.")
+        return None
+    else:
+        device_index = int(device_index)
+        print(f"Selected {devices[device_index]['name']} as input source.")
+        return device_index
 
 class AudioProcessor:
+
     def __init__(self, duration, sample_rate, device):
         self.duration = duration
         self.sample_rate = sample_rate
@@ -28,13 +34,13 @@ class AudioProcessor:
 
     def record_audio(self):
         while True:
-            audio_data = sd.rec(int(self.duration * self.sample_rate),
-                                samplerate=self.sample_rate, channels=1, device=self.device)
+            print("Recording audio...")
+            audio_data = sd.rec(frames=int(self.duration * self.sample_rate),
+                                samplerate=self.sample_rate,
+                                channels=1,
+                                device=self.device)
             sd.wait()  # Wait until recording is finished
-            # Play the audio data before enqueuing
-            # print("Playing pre-enqueuing recording")
-            # sd.play(audio_data, self.sample_rate)
-            # sd.wait()  # Wait until audio playback is finished
+            print("Finished recording audio...")
             self.audio_queue.put(audio_data)
 
     def process_audio(self):
@@ -45,16 +51,20 @@ class AudioProcessor:
             audio_data = self.audio_queue.get()
 
             # Play the audio data
-            print("Playing dequeued recording")
+            print("Playing dequeued recording...")
             sd.play(audio_data, self.sample_rate)
             sd.wait()  # Wait until audio playback is finished
+            print("Finished playing dequeued recording...")
 
             now = datetime.now()
             timestamp = now.strftime("%Y%m%d_%H%M")
             output_audio_file = f"audio_{timestamp}.wav"
 
-            audio_segment = AudioSegment(audio_data.tobytes(
-            ), frame_rate=self.sample_rate, sample_width=audio_data.dtype.itemsize, channels=1)
+            audio_segment = AudioSegment(
+                data=audio_data.tobytes(),
+                frame_rate=self.sample_rate,
+                sample_width=audio_data.dtype.itemsize,
+                channels=1)
 
             if os.path.exists(output_audio_file):
                 existing_audio = AudioSegment.from_wav(output_audio_file)
@@ -65,13 +75,14 @@ class AudioProcessor:
 
 
 # Usage:
-duration = 10.0  # seconds
+duration = 5.0  # seconds
 sample_rate = 48000  # Sample rate
 
 user_selected_device = prompt_user_for_input_device()
 
-processor = AudioProcessor(
-    duration=duration, sample_rate=sample_rate, device=user_selected_device)
+processor = AudioProcessor(duration=duration,
+                           sample_rate=sample_rate,
+                           device=user_selected_device)
 recording_thread = threading.Thread(target=processor.record_audio)
 processing_thread = threading.Thread(target=processor.process_audio)
 recording_thread.start()
