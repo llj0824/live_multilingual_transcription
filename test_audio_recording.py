@@ -4,10 +4,7 @@ import queue
 import numpy as np
 import scipy.io.wavfile as wav
 from faster_whisper import WhisperModel
-
-# Run on CPU with INT8
-model_size = "small"  # Specify the size of the Whisper model
-whisper_model = WhisperModel(model_size, device="cpu", compute_type="int8")
+import concurrent.futures
 
 counter = 0
 # Set the duration and sample rate
@@ -19,6 +16,8 @@ q = queue.Queue()
 
 # We need to record and process in the same thread b/c
 # in seperate threads it's causing audio issues.
+
+
 def record_process_thread(processQueue):
     while True:
         print("Recording...")
@@ -39,12 +38,16 @@ def record_process_thread(processQueue):
 
 
 def transcribe_audio(audio_data):
-    # Process the audio
-    print("Processing transcription...")
-    segments, info = whisper_model.transcribe(
-        audio_data, language="zh", task="translate", beam_size=5)
-    print("Detected language '%s' with probability %f" %
-          (info.language, info.language_probability))
+    # Run on CPU with INT8
+    # model_size = "small"  # Specify the size of the Whisper model
+    # whisper_model = WhisperModel(model_size, device="cpu", compute_type="int8")
+
+    # # Process the audio
+    # print("Processing transcription...")
+    # segments, info = whisper_model.transcribe(
+    #     audio_data, language="zh", task="translate", beam_size=5)
+    # print("Detected language '%s' with probability %f" %
+    #       (info.language, info.language_probability))
 
     # Get the current date and time
     now = datetime.now()
@@ -69,22 +72,19 @@ def transcribe_audio(audio_data):
     # audio_segment = AudioSegment(audio_data.tobytes(), frame_rate=fs, sample_width=audio_data.dtype.itemsize, channels=1)
 
     # # If the output file already exists, append the new audio to it
-    # if os.path.exists(output_audio_file):
-    #     existing_audio = AudioSegment.from_mp3(output_audio_file)
-    #     combined_audio = existing_audio + audio_segment
-    #     combined_audio.export(output_audio_file, format="mp3")
-    # else:
-    #     audio_segment.export(output_audio_file, format="mp3")
-
+    if os.path.exists(output_audio_file):
+        existing_audio = AudioSegment.from_mp3(output_audio_file)
+        combined_audio = existing_audio + audio_segment
+        combined_audio.export(output_audio_file, format="mp3")
+    else:
+        audio_segment.export(output_audio_file, format="mp3")
 
 def main_process(queue):
-    while True:
-        # Wait for a signal to start processing_thread
-        msg = q.get()
-        process_thread = threading.Thread(
-            target=record_process_thread, args=(queue,))
-        process_thread.start()
-
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        while True:
+            # Wait for a signal to start processing_thread
+            msg = q.get()
+            executor.submit(record_process_thread, queue)
 
 # Signal that processing is done and recording can start again
 q.put('start')
