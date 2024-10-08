@@ -90,7 +90,7 @@ def audio_processor():
                 # Prepare the output with timestamp prefix
                 timestamped_output = (
                     f"[{current_time}] {transcription}\n"
-                    f"[{current_time}] {translation}\n\n"
+                    f"[{current_time}] {translation}\n"
                 )
                 print(f"{timestamped_output}\n")
         except queue.Empty:
