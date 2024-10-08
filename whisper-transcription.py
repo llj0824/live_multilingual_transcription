@@ -32,7 +32,15 @@ generate_kwargs = {
     ## And then use it to do [chinese transcription] followed by [english translation] two lines for each chunk.
 }
 
-# Initialize the ASR pipeline
+
+# Initialize the translation pipeline
+translation_pipe = pipeline(
+    "translation",
+    model="Helsinki-NLP/opus-mt-zh-en",  # Chinese to English translation model
+    device=device
+)
+
+# Initialize the automatic-speech-recognition pipeline
 asr_pipe = pipeline(
     "automatic-speech-recognition",
     model=model,
@@ -69,14 +77,21 @@ def audio_processor():
                 # Remove the processed chunk from the buffer
                 audio_buffer = audio_buffer[sample_rate * block_duration:]
                 # Normalize audio if necessary
+
+                # Transcribe the audio chunk in Chinese
+                transcription = asr_pipe(audio_chunk)['text'].strip()
                 
-                # Transcribe the audio chunk
-                result = asr_pipe(audio_chunk)
+                # Translate the transcription to English
+                translation = translation_pipe(transcription)[0]['translation_text']
 
                 # Get the current timestamp
                 current_time = datetime.now().strftime("%H:%M:%S")
+                
                 # Prepare the output with timestamp prefix
-                timestamped_output = f"[{current_time}] {result['text']}"
+                timestamped_output = (
+                    f"[{current_time}] {transcription}\n"
+                    f"[{current_time}] {translation}\n\n"
+                )
                 print(f"{timestamped_output}\n")
         except queue.Empty:
             continue  # No data received yet
