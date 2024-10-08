@@ -4,6 +4,13 @@
 
 This application is designed to transcribe real-time Chinese conversations into English captions using a speech recognition model. It captures audio from the environment, processes it in chunks, and outputs the transcriptions.
 
+## Demo Videos
+
+To see the application in action, you can view the following demo videos located in the `demo` directory:
+
+- **Full View Demo:** [live_translation_full_view.mp4](demo/live_translation_full_view.mp4)
+- **Screen View Demo:** [live_translation_screenview.mp4](demo/live_translation_screenview.mp4)
+
 ## Background
 
 The application listens for conversations and transcribes them into English captions. It is primarily intended to translate Chinese conversations into English.
