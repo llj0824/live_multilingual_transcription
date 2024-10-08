@@ -3,6 +3,8 @@ import sounddevice as sd
 import numpy as np
 import threading
 import queue
+from datetime import datetime
+
 
 # Model configuration
 model_id = "openai/whisper-large-v3-turbo"
@@ -17,6 +19,18 @@ model = AutoModelForSpeechSeq2Seq.from_pretrained(
 model.to(device)
 
 processor = AutoProcessor.from_pretrained(model_id)
+# Real-time audio settings
+sample_rate = 16000
+block_duration = 5  # seconds
+language = "zh"     # Set the language for transcription
+
+
+# Ensure this line is correctly indented according to the surrounding code
+generate_kwargs = {
+    "language": language,
+    # TODO see if i can pass in initial prompt into generate_kwargs for AutomaticSpeechRecognitionPipeline using whisper model.
+    ## And then use it to do [chinese transcription] followed by [english translation] two lines for each chunk.
+}
 
 # Initialize the ASR pipeline
 asr_pipe = pipeline(
@@ -26,13 +40,9 @@ asr_pipe = pipeline(
     feature_extractor=processor.feature_extractor,
     device=device,
     chunk_length_s=30,  # Adjust chunk length as needed
-    batch_size=16        # Adjust batch size based on device capability
+    batch_size=16,       # Adjust batch size based on device capability
+    generate_kwargs=generate_kwargs
 )
-
-# Real-time audio settings
-sample_rate = 16000
-block_duration = 5  # seconds
-language = "zh"     # Set the language for transcription
 
 # Queue to communicate between the audio callback and processing thread
 audio_queue = queue.Queue()
@@ -61,8 +71,13 @@ def audio_processor():
                 # Normalize audio if necessary
                 
                 # Transcribe the audio chunk
-                result = asr_pipe(audio_chunk, generate_kwargs={"language": language})
-                print(f"Transcription: {result['text']}")
+                result = asr_pipe(audio_chunk)
+
+                # Get the current timestamp
+                current_time = datetime.now().strftime("%H:%M:%S")
+                # Prepare the output with timestamp prefix
+                timestamped_output = f"[{current_time}] {result['text']}"
+                print(f"{timestamped_output}\n")
         except queue.Empty:
             continue  # No data received yet
 
