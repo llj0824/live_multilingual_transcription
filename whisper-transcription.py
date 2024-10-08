@@ -1,0 +1,84 @@
+from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
+import sounddevice as sd
+import numpy as np
+import threading
+import queue
+
+# Model configuration
+model_id = "openai/whisper-large-v3-turbo"
+device = "cpu"
+
+# Load model and processor
+model = AutoModelForSpeechSeq2Seq.from_pretrained(
+    model_id,
+    low_cpu_mem_usage=True,
+    use_safetensors=True
+)
+model.to(device)
+
+processor = AutoProcessor.from_pretrained(model_id)
+
+# Initialize the ASR pipeline
+asr_pipe = pipeline(
+    "automatic-speech-recognition",
+    model=model,
+    tokenizer=processor.tokenizer,
+    feature_extractor=processor.feature_extractor,
+    device=device,
+    chunk_length_s=30,  # Adjust chunk length as needed
+    batch_size=16        # Adjust batch size based on device capability
+)
+
+# Real-time audio settings
+sample_rate = 16000
+block_duration = 5  # seconds
+language = "zh"     # Set the language for transcription
+
+# Queue to communicate between the audio callback and processing thread
+audio_queue = queue.Queue()
+# Event to signal the processing thread to stop
+stop_event = threading.Event()
+
+def callback(indata, frames, time, status):
+    if status:
+        print(status)
+    # Convert audio data to float32 and enqueue
+    audio_queue.put(indata.copy())
+
+def audio_processor():
+    audio_buffer = np.empty((0,), dtype=np.float32)
+    while not stop_event.is_set():
+        try:
+            # Accumulate audio data from the queue
+            data = audio_queue.get(timeout=1)
+            audio_buffer = np.concatenate((audio_buffer, data.flatten()), axis=0)
+            # Process when we have at least block_duration seconds of audio
+            if len(audio_buffer) >= sample_rate * block_duration:
+                # Extract a chunk of audio data
+                audio_chunk = audio_buffer[:sample_rate * block_duration]
+                # Remove the processed chunk from the buffer
+                audio_buffer = audio_buffer[sample_rate * block_duration:]
+                # Normalize audio if necessary
+                
+                # Transcribe the audio chunk
+                result = asr_pipe(audio_chunk, generate_kwargs={"language": language})
+                print(f"Transcription: {result['text']}")
+        except queue.Empty:
+            continue  # No data received yet
+
+# Start the audio processing thread
+processor_thread = threading.Thread(target=audio_processor)
+processor_thread.start()
+
+try:
+    # Start the audio input stream
+    with sd.InputStream(channels=1, samplerate=sample_rate, callback=callback, dtype='float32'):
+        print("Real-time transcription running... Press Ctrl+C to stop.")
+        while True:
+            sd.sleep(1000)  # Keep the main thread alive
+except KeyboardInterrupt:
+    print("\nTranscription stopped.")
+finally:
+    # Signal the processing thread to stop and wait for it to finish
+    stop_event.set()
+    processor_thread.join()
