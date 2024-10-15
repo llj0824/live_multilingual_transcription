@@ -4,6 +4,8 @@ import numpy as np
 import threading
 import queue
 from datetime import datetime
+import webrtcvad
+import collections
 
 
 # Model configuration
@@ -24,6 +26,11 @@ sample_rate = 16000
 block_duration = 5  # seconds
 language = "zh"     # Set the language for transcription
 
+# Initialize VAD
+vad = webrtcvad.Vad(2)  # Aggressiveness mode (0-3)
+
+# Frame duration for VAD (must be 10, 20, or 30 ms)
+frame_duration = 30  # ms
 
 # Ensure this line is correctly indented according to the surrounding code
 generate_kwargs = {
@@ -57,6 +64,40 @@ audio_queue = queue.Queue()
 # Event to signal the processing thread to stop
 stop_event = threading.Event()
 
+def frame_generator(frame_duration_ms, audio, sample_rate):
+    n = int(sample_rate * frame_duration_ms / 1000)
+    offset = 0
+    while offset + n <= len(audio):
+        yield audio[offset:offset + n]
+        offset += n
+
+def vad_collector(sample_rate, frame_duration_ms, padding_duration_ms, vad, frames):
+    num_padding_frames = int(padding_duration_ms / frame_duration_ms)
+    ring_buffer = collections.deque(maxlen=num_padding_frames)
+    triggered = False
+    voiced_frames = []
+
+    for frame in frames:
+        is_speech = vad.is_speech(frame.tobytes(), sample_rate)
+        if not triggered:
+            ring_buffer.append(frame)
+            num_voiced = len([f for f in ring_buffer if vad.is_speech(f.tobytes(), sample_rate)])
+            if num_voiced > 0.9 * ring_buffer.maxlen:
+                triggered = True
+                voiced_frames.extend(ring_buffer)
+                ring_buffer.clear()
+        else:
+            voiced_frames.append(frame)
+            ring_buffer.append(frame)
+            num_unvoiced = len([f for f in ring_buffer if not vad.is_speech(f.tobytes(), sample_rate)])
+            if num_unvoiced > 0.9 * ring_buffer.maxlen:
+                triggered = False
+                yield b''.join(voiced_frames)
+                ring_buffer.clear()
+                voiced_frames = []
+    if voiced_frames:
+        yield b''.join(voiced_frames)
+
 def callback(indata, frames, time, status):
     if status:
         print(status)
@@ -64,20 +105,18 @@ def callback(indata, frames, time, status):
     audio_queue.put(indata.copy())
 
 def audio_processor():
-    audio_buffer = np.empty((0,), dtype=np.float32)
     while not stop_event.is_set():
         try:
             # Accumulate audio data from the queue
             data = audio_queue.get(timeout=1)
-            audio_buffer = np.concatenate((audio_buffer, data.flatten()), axis=0)
-            # Process when we have at least block_duration seconds of audio
-            if len(audio_buffer) >= sample_rate * block_duration:
-                # Extract a chunk of audio data
-                audio_chunk = audio_buffer[:sample_rate * block_duration]
-                # Remove the processed chunk from the buffer
-                audio_buffer = audio_buffer[sample_rate * block_duration:]
-                # Normalize audio if necessary
-
+            # Convert to 16-bit PCM for VAD
+            audio = (data.flatten() * 32767).astype(np.int16)
+            frames = list(frame_generator(frame_duration, audio, sample_rate))
+            segments = vad_collector(sample_rate, frame_duration, 300, vad, frames)
+            for segment in segments:
+                audio_chunk = np.frombuffer(segment, dtype=np.int16).astype(np.float32) / 32767.0
+                if len(audio_chunk) == 0:
+                    continue
                 # Transcribe the audio chunk in Chinese
                 transcription = asr_pipe(audio_chunk)['text'].strip()
                 
@@ -103,7 +142,7 @@ processor_thread.start()
 try:
     # Start the audio input stream
     with sd.InputStream(channels=1, samplerate=sample_rate, callback=callback, dtype='float32'):
-        print("Real-time transcription running... Press Ctrl+C to stop.")
+        print("Real-time transcription running with VAD... Press Ctrl+C to stop.")
         while True:
             sd.sleep(1000)  # Keep the main thread alive
 except KeyboardInterrupt:
