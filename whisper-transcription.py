@@ -4,6 +4,7 @@ import numpy as np
 import threading
 import queue
 from datetime import datetime
+from pyannote.audio import Pipeline
 
 
 # Model configuration
@@ -52,6 +53,12 @@ asr_pipe = pipeline(
     generate_kwargs=generate_kwargs
 )
 
+# Initialize the VAD pipeline
+vad_pipeline = Pipeline.from_pretrained(
+    "pyannote/voice-activity-detection",
+    use_auth_token=config['access_token']
+)
+
 # Queue to communicate between the audio callback and processing thread
 audio_queue = queue.Queue()
 # Event to signal the processing thread to stop
@@ -76,23 +83,35 @@ def audio_processor():
                 audio_chunk = audio_buffer[:sample_rate * block_duration]
                 # Remove the processed chunk from the buffer
                 audio_buffer = audio_buffer[sample_rate * block_duration:]
-                # Normalize audio if necessary
-
-                # Transcribe the audio chunk in Chinese
-                transcription = asr_pipe(audio_chunk)['text'].strip()
                 
-                # Translate the transcription to English
-                translation = translation_pipe(transcription)[0]['translation_text']
+                # Save the audio chunk to a temporary file
+                temp_audio_file = "temp_audio.wav"
+                sd.write(temp_audio_file, audio_chunk, sample_rate)
 
-                # Get the current timestamp
-                current_time = datetime.now().strftime("%H:%M:%S")
+                # Apply VAD to the audio chunk
+                vad_output = vad_pipeline(temp_audio_file)
                 
-                # Prepare the output with timestamp prefix
-                timestamped_output = (
-                    f"[{current_time}] {transcription}\n"
-                    f"[{current_time}] {translation}\n"
-                )
-                print(f"{timestamped_output}\n")
+                for speech in vad_output.get_timeline().support():
+                    # Extract active speech segments
+                    start_time = int(speech.start * sample_rate)
+                    end_time = int(speech.end * sample_rate)
+                    active_speech = audio_chunk[start_time:end_time]
+
+                    # Transcribe the active speech in Chinese
+                    transcription = asr_pipe(active_speech)['text'].strip()
+                    
+                    # Translate the transcription to English
+                    translation = translation_pipe(transcription)[0]['translation_text']
+
+                    # Get the current timestamp
+                    current_time = datetime.now().strftime("%H:%M:%S")
+                    
+                    # Prepare the output with timestamp prefix
+                    timestamped_output = (
+                        f"[{current_time}] {transcription}\n"
+                        f"[{current_time}] {translation}\n"
+                    )
+                    print(f"{timestamped_output}\n")
         except queue.Empty:
             continue  # No data received yet
 
