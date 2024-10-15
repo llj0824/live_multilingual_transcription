@@ -4,9 +4,15 @@ import numpy as np
 import threading
 import queue
 from datetime import datetime
+import json
 from pyannote.audio import Pipeline
+import io
+import scipy.io.wavfile as wavfile
 
-
+# Load configuration from JSON file
+with open('config.json', 'r') as config_file:
+    config = json.load(config_file)
+    
 # Model configuration
 model_id = "openai/whisper-large-v3-turbo"
 device = "cpu"
@@ -84,12 +90,14 @@ def audio_processor():
                 # Remove the processed chunk from the buffer
                 audio_buffer = audio_buffer[sample_rate * block_duration:]
                 
-                # Save the audio chunk to a temporary file
-                temp_audio_file = "temp_audio.wav"
-                sd.write(temp_audio_file, audio_chunk, sample_rate)
-
-                # Apply VAD to the audio chunk
-                vad_output = vad_pipeline(temp_audio_file)
+                # Use BytesIO to create an in-memory buffer
+                with io.BytesIO() as wav_buffer:
+                    # Write the audio data to the buffer using scipy.io.wavfile
+                    wavfile.write(wav_buffer, sample_rate, audio_chunk)
+                    wav_buffer.seek(0)
+                    
+                    # Apply VAD to the in-memory audio
+                    vad_output = vad_pipeline(wav_buffer)
                 
                 for speech in vad_output.get_timeline().support():
                     # Extract active speech segments
